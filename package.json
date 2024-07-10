@@ -11,6 +11,7 @@
   "author": "",
   "license": "BSD-3-Clause",
   "dependencies": {
-    "@extism/extism": "^1.0.3"
+    "@extism/extism": "^1.0.3",
+    "nats": "^2.28.0"
   }
 }
