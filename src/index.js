@@ -14,15 +14,10 @@ async function runModule(name, pluginConfig, params) {
     )
   }
 
-  const plugin = await createPlugin(
-    {
-      url: moduleUrl,
-    },
-    {
-      ...pluginConfig,
-      useWasi: true,
-    }
-  )
+  const plugin = await createPlugin(moduleUrl, {
+    ...pluginConfig,
+    useWasi: true,
+  })
 
   const input = new TextEncoder().encode(params)
   const res = await plugin.call('_main', input)
