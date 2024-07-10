@@ -1,9 +1,7 @@
 import createPlugin from '@extism/extism'
 
-const baseUrl = 'https://gihub.com/zerosync-co/js-sdk/blob/main'
-
 const registry = {
-  fetch: `${baseUrl}/wasm_fetch.wasm`,
+  fetch: `../wasm_fetch.wasm`,
 }
 
 async function runModule(name, pluginConfig, params) {
