@@ -79,7 +79,7 @@ async function init(config_yaml_str) {
     wasm: modules,
   };
 
-  const url = new URL("https://naas-sandbox.t-mobile.com");
+  const url = new URL("https://naas-sandbox.t-mobile.com"); // FIXME--
   const allowedHost = url.host;
   return await createPlugin(manifest, {
     useWasi: true,
