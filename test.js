@@ -22,13 +22,7 @@ graph:
       hash: 64edec9d7504e1466d1dc2e39829e792a03878b0b19214b7b143852746b32854
   node_holes: []
   edge_property: directed
-  edges:
-    - - 0
-      - 1
-      - null
-    - - 1
-      - 2
-      - null
+  edges: []
 nats:
   url: localhost:4222
   enable_execution_thread: true
