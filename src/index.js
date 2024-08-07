@@ -28,8 +28,8 @@ async function fromReadableStream(reader) {
   return uint8Array;
 }
 
-async function run(config_yaml_str, fn_name, params) {
-  const engineConfig = load(config_yaml_str);
+async function run(configYamlStr, fnName, params) {
+  const engineConfig = load(configYamlStr);
 
   const nc = await connect({ servers: engineConfig.nats.url });
   const js = nc.jetstream();
@@ -38,15 +38,15 @@ async function run(config_yaml_str, fn_name, params) {
 
   const modules = [];
 
-  for (const node of engineConfig.graph.nodes) {
-    const object = await os.get(node.object);
+  for (const wasm of engineConfig.wasm) {
+    const object = await os.get(wasm.object_name);
 
     const data = await fromReadableStream(object.data.getReader());
 
     modules.push({
       data,
-      name: node.namespace,
-      hash: node.hash,
+      name: wasm.namespace,
+      hash: wasm.hash,
     });
   }
 
@@ -61,9 +61,73 @@ async function run(config_yaml_str, fn_name, params) {
   });
 
   const parsedInput = new TextEncoder().encode(JSON.stringify(params));
-  const output = await plugin.call(fn_name, parsedInput);
-  const textOutput = new TextDecoder().decode(output.buffer);
-  return JSON.parse(textOutput);
+  const rawOutput = await plugin.call(fnName, parsedInput);
+  const jsonOutput = rawOutput.json();
+
+  // move into async function that runs in the background
+  let wasmWithFn = engineConfig.wasm.find(({ plugin_functions }) =>
+    plugin_functions.includes(fnName),
+  );
+  let matchingStageIdx = engineConfig.workflow.nodes.findIndex(
+    ({ object_name }) => wasmWithFn.object_name === object_name,
+  );
+  let nextInput = JSON.parse(JSON.stringify(jsonOutput));
+
+  while (matchingStageIdx >= 0 && !!nextInput) {
+    let nextStages = engineConfig.workflow.edges.reduce(
+      (acc, [sourceIdx, targetIdx]) => {
+        if (sourceIdx === matchingStageIdx) {
+          acc.push(engineConfig.workflow.nodes[targetIdx]);
+        }
+        return acc;
+      },
+      [],
+    );
+
+    // FIXME-- handle branching and multiple next stages
+
+    let nextStage = nextStages[0];
+    if (nextStage) {
+      try {
+        const object = await os.get(nextStage.object_name);
+        const data = await fromReadableStream(object.data.getReader());
+        const nextStageManifest = {
+          wasm: [
+            {
+              data,
+            },
+          ],
+        };
+        const nextStagePlugin = await createPlugin(nextStageManifest, {
+          useWasi: engineConfig.plugin.wasi,
+          allowedHosts: engineConfig.plugin.allowed_hosts,
+          runInWorker: true,
+        });
+
+        const parsedInput = new TextEncoder().encode(JSON.stringify(nextInput));
+        const nextRawOutput = await nextStagePlugin.call(
+          nextStage.plugin_function_name,
+          parsedInput,
+        );
+        nextInput = nextRawOutput.json();
+
+        wasmWithFn = engineConfig.wasm.find(({ plugin_functions }) =>
+          plugin_functions.includes(nextStage.plugin_function_name),
+        );
+        matchingStageIdx = engineConfig.workflow.nodes.findIndex(
+          ({ object_name }) => wasmWithFn.object_name === object_name,
+        );
+
+        continue;
+      } catch (e) {
+        console.log("failed to continue workflow;", e.message);
+        nextInput = null;
+      }
+    }
+  }
+
+  // TODO-- broadcast to nats
+  return jsonOutput;
 }
 
 export default run;
