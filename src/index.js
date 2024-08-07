@@ -1,8 +1,6 @@
 import { createPlugin } from "@extism/extism";
 import { connect, StorageType } from "nats";
 import { load } from "js-yaml";
-import { Graph } from "@dagrejs/graphlib";
-// import fs from "node:fs/promises";
 
 async function fromReadableStream(reader) {
   let chunks = [];
@@ -30,48 +28,25 @@ async function fromReadableStream(reader) {
   return uint8Array;
 }
 
-function buildGraphFromConfig(config) {
-  const graph = new Graph({ directed: true });
+async function run(config_yaml_str, fn_name, params) {
+  const engineConfig = load(config_yaml_str);
 
-  for (const node of config.nodes) {
-    graph.setNode(node.name, node);
-  }
-
-  for (const edge of config.edges) {
-    graph.setEdge(edge.source, edge.target);
-  }
-
-  return graph;
-}
-
-async function init(config_yaml_str) {
-  // const defaultConfigPath = "./config.yaml";
-  const defaultNatsEndpoint = "localhost:4222";
-
-  // const configContents = await fs.readFile(defaultConfigPath, "utf8");
-  // const graphConfig = load(configContents);
-  const graphConfig = load(config_yaml_str);
-
-  const graph = buildGraphFromConfig(graphConfig);
-
-  const nc = await connect({ servers: defaultNatsEndpoint });
+  const nc = await connect({ servers: engineConfig.nats.url });
   const js = nc.jetstream();
 
   const os = await js.views.os("wasm", { storage: StorageType.File });
 
   const modules = [];
 
-  for (const node of graph.nodes()) {
-    const nodeData = graph.node(node);
-
-    const object = await os.get(nodeData.object);
+  for (const node of engineConfig.graph.nodes) {
+    const object = await os.get(node.object);
 
     const data = await fromReadableStream(object.data.getReader());
 
     modules.push({
       data,
-      name: nodeData.namespace,
-      hash: nodeData.hash,
+      name: node.namespace,
+      hash: node.hash,
     });
   }
 
@@ -79,13 +54,16 @@ async function init(config_yaml_str) {
     wasm: modules,
   };
 
-  const url = new URL("https://naas-sandbox.t-mobile.com"); // FIXME--
-  const allowedHost = url.host;
-  return await createPlugin(manifest, {
-    useWasi: true,
-    allowedHosts: [allowedHost],
+  const plugin = await createPlugin(manifest, {
+    useWasi: engineConfig.plugin.wasi,
+    allowedHosts: engineConfig.plugin.allowed_hosts,
     runInWorker: true,
   });
+
+  const parsedInput = new TextEncoder().encode(JSON.stringify(params));
+  const output = await plugin.call(fn_name, parsedInput);
+  const textOutput = new TextDecoder().decode(output.buffer);
+  return JSON.parse(textOutput);
 }
 
-export default init;
+export default run;
