@@ -61,8 +61,21 @@ async function run(configYamlStr, fnName, params) {
   });
 
   const parsedInput = new TextEncoder().encode(JSON.stringify(params));
-  const rawOutput = await plugin.call(fnName, parsedInput);
-  const jsonOutput = rawOutput.json();
+
+  const thisStage = engineConfig.wasm.find(
+    ({ namespace }) => namespace === "main",
+  );
+  let jsonOutput;
+  try {
+    const rawOutput = await plugin.call(fnName, parsedInput);
+    jsonOutput = rawOutput.json();
+
+    nc.publish(`deadlift.logs.${thisStage.object_name}.success`, "");
+  } catch (e) {
+    nc.publish(`deadlift.logs.${thisStage.object_name}.error`, "");
+
+    throw e;
+  }
 
   // move into async function that runs in the background
   let wasmWithFn = engineConfig.wasm.find(({ plugin_functions }) =>
@@ -111,6 +124,8 @@ async function run(configYamlStr, fnName, params) {
         );
         nextInput = nextRawOutput.json();
 
+        nc.publish(`deadlift.logs.${nextStage.object_name}.success`, "");
+
         wasmWithFn = engineConfig.wasm.find(({ plugin_functions }) =>
           plugin_functions.includes(nextStage.plugin_function_name),
         );
@@ -121,6 +136,7 @@ async function run(configYamlStr, fnName, params) {
         continue;
       } catch (e) {
         console.log("failed to continue workflow;", e.message);
+        nc.publish(`deadlift.logs.${nextStage.object_name}.error`, "");
         nextInput = null;
       }
     }
